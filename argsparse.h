@@ -107,11 +107,11 @@ static inline int __argsparse_add_opt(struct argsparse_struct *parse,
 }
 
 #define argsparse_add_opt(parse, name, type, init, help)        \
-    ({                                                              \
-        assert(__builtin_constant_p(name));                         \
-        assert(__builtin_constant_p(help));                         \
+    ({                                                          \
+        assert(__builtin_constant_p(name));                     \
+        assert(__builtin_constant_p(help));                     \
         __argsparse_add_opt(parse, name, ARG_OPT_##type##_TYPE, \
-                            (unsigned long)init, help);             \
+                            (unsigned long)init, help);         \
     })
 
 static inline void argparse_show_helper(struct argsparse_struct *parse)
@@ -155,8 +155,7 @@ static inline int argsparse_parse(struct argsparse_struct *parse, int argc,
     /* for help option */
     parse->nr_args++;
 
-    options =
-        (struct option *)malloc(parse->nr_args * sizeof(struct option));
+    options = (struct option *)malloc(parse->nr_args * sizeof(struct option));
     if (!options)
         return -ENOMEM;
 
@@ -231,7 +230,7 @@ static inline unsigned long argsparse_get_arg(struct argsparse_struct *parse,
                                               const char *name)
 {
     for (struct arg_opt_struct *curr = parse->head; curr != NULL;
-             curr = curr->next) {
+         curr = curr->next) {
         if (!(strncmp(curr->name, name, strlen(curr->name))))
             return curr->data;
     }
@@ -242,7 +241,7 @@ static inline unsigned long argsparse_get_arg(struct argsparse_struct *parse,
 static inline void argsparse_exit(struct argsparse_struct *parse)
 {
     for (struct arg_opt_struct *curr = parse->head; curr != NULL;
-             curr = curr->next) {
+         curr = curr->next) {
         struct arg_opt_struct *tmp = curr->next;
         free(curr);
         curr = tmp;
