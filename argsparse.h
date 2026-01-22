@@ -240,13 +240,10 @@ static inline unsigned long argsparse_get_arg(struct argsparse_struct *parse,
 
 static inline void argsparse_exit(struct argsparse_struct *parse)
 {
-    for (struct arg_opt_struct *curr = parse->head; curr != NULL;
-         curr = curr->next) {
+    for (struct arg_opt_struct *curr = parse->head; curr != NULL;) {
         struct arg_opt_struct *tmp = curr->next;
         free(curr);
         curr = tmp;
-        if (!curr)
-            break;
     }
 }
 
