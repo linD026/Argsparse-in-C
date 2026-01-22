@@ -245,6 +245,8 @@ static inline void argsparse_exit(struct argsparse_struct *parse)
         struct arg_opt_struct *tmp = curr->next;
         free(curr);
         curr = tmp;
+        if (!curr)
+            break;
     }
 }
 
