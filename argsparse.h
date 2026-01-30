@@ -1,7 +1,12 @@
-#ifndef __PAD_LOGS_H__
-#define __PAD_LOGS_H__
+#ifndef __ARGSPARSE_H__
+#define __ARGSPARSE_H__
 
+#include <assert.h>
 #include <stdio.h>
+#include <stdlib.h> /* for atoi() */
+#include <errno.h>
+#include <getopt.h>
+#include <string.h> /* for memcpy() */
 
 #ifndef likely
 #define likely(x) __builtin_expect(!!(x), 1)
@@ -48,20 +53,10 @@
         unlikely(__w_r_ret);                                       \
     })
 
-#endif /* __PAD_LOGS_H__*/
-
-#ifndef __ARGSPARSE_H__
-#define __ARGSPARSE_H__
-
-#include <assert.h>
-#include <stdlib.h> /* for atoi() */
-#include <errno.h>
-#include <getopt.h>
-#include <string.h> /* for memcpy() */
-
 #define ARG_OPT_INT_TYPE 0x0001
 #define ARG_OPT_STR_TYPE 0x0002
 #define ARG_OPT_BOOL_TYPE 0x0004
+#define ARG_OPT_ALLOCATED_DATA_TYPE 0x0008 /* not for argstype */
 #define NR_ARG_OPT_TYPE 3
 
 struct arg_opt_struct {
@@ -79,10 +74,24 @@ struct argsparse_struct {
     struct arg_opt_struct *head;
 };
 
+#define __argsparse_cleanup __attribute__((cleanup(__argsparse_exit)))
+
 #define DEFINE_ARGSPARSE(_program_name, name)                       \
     struct argsparse_struct name = { .program_name = _program_name, \
                                      .nr_args = 0,                  \
-                                     .head = NULL }
+                                     .head = NULL };                \
+    struct argsparse_struct *__argsparse_cleanup                    \
+        __attribute__((unused)) __cleanup_ptr_##name = &name
+
+#define argsparse_add_opt(parse, name, type, init, help)        \
+    ({                                                          \
+        assert(__builtin_constant_p(name));                     \
+        assert(__builtin_constant_p(help));                     \
+        __argsparse_add_opt(parse, name, ARG_OPT_##type##_TYPE, \
+                            (unsigned long)init, help);         \
+    })
+
+/* core file */
 
 static inline int __argsparse_add_opt(struct argsparse_struct *parse,
                                       const char *name, unsigned int type,
@@ -105,14 +114,6 @@ static inline int __argsparse_add_opt(struct argsparse_struct *parse,
 
     return 0;
 }
-
-#define argsparse_add_opt(parse, name, type, init, help)        \
-    ({                                                          \
-        assert(__builtin_constant_p(name));                     \
-        assert(__builtin_constant_p(help));                     \
-        __argsparse_add_opt(parse, name, ARG_OPT_##type##_TYPE, \
-                            (unsigned long)init, help);         \
-    })
 
 static inline void argparse_show_helper(struct argsparse_struct *parse)
 {
@@ -139,7 +140,7 @@ static inline void argparse_show_helper(struct argsparse_struct *parse)
 
     for (struct arg_opt_struct *curr = parse->head; curr != NULL;
          curr = curr->next) {
-        printf("  --%-10s%s\n", curr->name, curr->help);
+        printf("  --%-30s%s\n", curr->name, curr->help);
     }
 }
 
@@ -150,12 +151,11 @@ static inline int argsparse_parse(struct argsparse_struct *parse, int argc,
     int help_val = 0;
     int opt;
     int opt_index;
+    /* for helper option */
+    int nr_args = parse->nr_args + 1;
     struct option *options = NULL;
 
-    /* for help option */
-    parse->nr_args++;
-
-    options = (struct option *)malloc(parse->nr_args * sizeof(struct option));
+    options = (struct option *)malloc(nr_args * sizeof(struct option));
     if (!options)
         return -ENOMEM;
 
@@ -174,11 +174,11 @@ static inline int argsparse_parse(struct argsparse_struct *parse, int argc,
     }
 
     /* help option */
-    options[parse->nr_args - 1].name = "help";
-    options[parse->nr_args - 1].has_arg = no_argument;
-    options[parse->nr_args - 1].flag = 0;
-    help_val = 'a' + parse->nr_args - 1;
-    options[parse->nr_args - 1].val = help_val;
+    options[nr_args - 1].name = "help";
+    options[nr_args - 1].has_arg = no_argument;
+    options[nr_args - 1].flag = 0;
+    help_val = 'a' + nr_args - 1;
+    options[nr_args - 1].val = help_val;
 
     /* parse the option */
 #define OPT_STRING "abcdefghijklmnopqrstuvwxyz"
@@ -187,8 +187,17 @@ static inline int argsparse_parse(struct argsparse_struct *parse, int argc,
         int idx = opt - 'a';
         struct arg_opt_struct *tmp = NULL;
 
+        if (opt == '?') {
+            printf("Unkown option, please use following options:\n\n");
+            argparse_show_helper(parse);
+            printf("\n");
+            free(options);
+            exit(0);
+        }
+
         if (help_val == options[opt_index].val) {
             argparse_show_helper(parse);
+            free(options);
             exit(0);
         }
 
@@ -211,11 +220,14 @@ static inline int argsparse_parse(struct argsparse_struct *parse, int argc,
             tmp->data = (typeof(tmp->data))atoll(optarg);
         } else if (tmp->type & ARG_OPT_STR_TYPE) {
             size_t size = strlen(optarg);
+
             tmp->data = (unsigned long)malloc(size + 1);
             if (!tmp->data)
                 return -ENOMEM;
             strncpy((char *)tmp->data, optarg, size + 1);
             ((char *)tmp->data)[size] = '\0';
+
+            tmp->type |= ARG_OPT_ALLOCATED_DATA_TYPE;
         }
     }
 
@@ -231,20 +243,24 @@ static inline unsigned long argsparse_get_arg(struct argsparse_struct *parse,
 {
     for (struct arg_opt_struct *curr = parse->head; curr != NULL;
          curr = curr->next) {
-        if (!(strncmp(curr->name, name, strlen(curr->name))))
+        if (!(strncmp(curr->name, name, strlen(curr->name)))) {
             return curr->data;
+        }
     }
 
     return 0;
 }
 
-static inline void argsparse_exit(struct argsparse_struct *parse)
+static inline void __argsparse_exit(void *p)
 {
+    struct argsparse_struct *parse = *(struct argsparse_struct **)p;
+
     for (struct arg_opt_struct *curr = parse->head; curr != NULL;) {
         struct arg_opt_struct *tmp = curr->next;
+        if (curr->type & ARG_OPT_ALLOCATED_DATA_TYPE)
+            free((void *)curr->data);
         free(curr);
         curr = tmp;
     }
 }
-
 #endif /* __ARGSPARSE_H__ */
